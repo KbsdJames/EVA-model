@@ -13,6 +13,8 @@ from torch.utils.data import Dataset
 from tokenization_eva import EVATokenizer
 from utils import print_rank_0, save_rank_0
 
+import pdb
+
 class EVADataset(Dataset):
     def __init__(self, args, tokenizer: EVATokenizer, path, split, ratio=1, num=-1, cache_path=None):
         super(EVADataset, self).__init__()
@@ -53,6 +55,7 @@ class EVADataset(Dataset):
             lines = f.readlines()
         
         for line in tqdm(lines[:int(self.ratio * len(lines))], desc="Loading data from {}".format(path), disable=(dist.get_rank() != 0)):
+            line = line.replace("[SEP]", "\t");
             line = line.strip().split("\t")
             line = [self.tokenizer.encode(utt) for utt in line]
             if len(line) == 1:
@@ -63,11 +66,22 @@ class EVADataset(Dataset):
                 target = line[-1]
 
             trunc_context = []
-            for c in context[::-1]:
-                if len(c) + len(trunc_context) + 1 + 1 <= self.max_enc_len: # first 1 for <sep>, second 1 for <s_0>
+            try:
+                assert(len(context) >= 4)
+            except:
+                pdb.set_trace()
+            topic = context[0]
+            knowledge = context[1]
+            location = context[2]
+            for c in context[::-1][:-3]:
+                if len(topic) + len(location) + len(knowledge) + len(c) + len(trunc_context) + 4 + 1 <= self.max_enc_len: # first 1 for <sep>, second 1 for <s_0>
                     trunc_context = c + [self.tokenizer.sep_id] + trunc_context
                 else:
                     break
+            
+            trunc_context = topic + [self.tokenizer.sep_id] + knowledge + [self.tokenizer.sep_id] \
+                        + location + [self.tokenizer.sep_id] + trunc_context
+
             if len(trunc_context) > 0 and len(target) < self.max_dec_len:
                 trunc_context = trunc_context + [self.tokenizer.get_sentinel_id(0)]
                 target = [self.tokenizer.get_sentinel_id(0)] + target + [self.tokenizer.sep_id]
@@ -79,6 +93,53 @@ class EVADataset(Dataset):
 
         return contexts, targets, labels
 
+    def preprocess_test(self, path):
+        contexts = []
+        targets = []
+        labels = []
+
+        with open(path, "r") as f:
+            lines = f.readlines()
+        
+        for line in tqdm(lines[:int(self.ratio * len(lines))], desc="Loading data from {}".format(path), disable=(dist.get_rank() != 0)):
+            line = line.replace("[SEP]", "\t");
+            line = line.strip().split("\t")
+            line = [self.tokenizer.encode(utt) for utt in line]
+            if len(line) == 1:
+                context = line
+                target = [0, 0] # empty dial
+            else:
+                context = line[:-1]
+                target = line[-1]
+
+            trunc_context = []
+            try:
+                assert(len(context) >= 4)
+            except:
+                pdb.set_trace()
+            topic = context[0]
+            knowledge = context[1]
+            location = context[2]
+            for c in context[::-1][:-3]:
+                if len(topic) + len(location) + len(knowledge) + len(c) + len(trunc_context) + 4 + 1 <= self.max_enc_len: # first 1 for <sep>, second 1 for <s_0>
+                    trunc_context = c + [self.tokenizer.sep_id] + trunc_context
+                else:
+                    break
+            
+            trunc_context = topic + [self.tokenizer.sep_id] + knowledge + [self.tokenizer.sep_id] \
+                        + location + [self.tokenizer.sep_id] + trunc_context
+
+            if len(trunc_context) > 0 and len(target) < self.max_dec_len:
+                trunc_context = trunc_context + [self.tokenizer.get_sentinel_id(0)]
+                target = [self.tokenizer.get_sentinel_id(0)] + target + [self.tokenizer.sep_id]
+                contexts.append(trunc_context)
+                targets.append(target[:-1])
+                labels.append(target[1:])
+            else:
+                continue
+
+        return contexts, targets, labels
+    
     def __getitem__(self, index):
         return (self.contexts[index], self.targets[index], self.labels[index])
 

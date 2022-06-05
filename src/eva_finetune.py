@@ -36,6 +36,7 @@ signal.signal(signal.SIGCHLD, signal.SIG_IGN)
 
 from model import DistributedDataParallel as DDP
 
+import pdb
 
 def get_model(args, config):
     """Build the model."""
@@ -262,6 +263,7 @@ def train(args, tokenizer, model, optimizer, lr_scheduler, train_dataset, train_
     for e in range(args.epochs):
         model.train()
         for model_batch, no_model_batch in train_dataloader:
+            """
             for k in model_batch:
                 model_batch[k] = model_batch[k].to(device)
             for k in no_model_batch:
@@ -301,11 +303,11 @@ def train(args, tokenizer, model, optimizer, lr_scheduler, train_dataset, train_
             # Checkpointing
             if args.save and args.save_interval and global_step % args.save_interval == 0 and step % args.gradient_accumulation_steps == 0:
                 save_checkpoint(global_step, model, optimizer, lr_scheduler, args)
-
+            """
             # Evaluation
             if args.eval_interval and global_step % args.eval_interval == 0 and step % args.gradient_accumulation_steps == 0 and args.do_valid:
                 prefix = 'iteration {} | '.format(global_step)
-                eval_loss, metric_res, _ = evaluate(args, tokenizer, dev_dataset, dev_dataloader, model, device, mode="dev")
+                eval_loss, metric_res, dev_res = evaluate(args, tokenizer, dev_dataset, dev_dataloader, model, device, mode="dev")
                 model.train()
                 if len(metric_res) > 1:
                     log_string = prefix
@@ -315,7 +317,8 @@ def train(args, tokenizer, model, optimizer, lr_scheduler, train_dataset, train_
                     log_string = prefix + " eval_loss: " + str(eval_loss)
                 print_rank_0(log_string)
                 save_rank_0(args, log_string)
-
+                #save eval_result
+                #pdb.set_trace()
             step += 1
             if step % args.gradient_accumulation_steps == 0:
                 global_step += 1
